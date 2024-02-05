@@ -44,7 +44,11 @@ def main():
             print('Exiting...')
             break
 
-        type, endpoint, params = s.split(' ', 2)
+        type, endpoint_params = s.split(' ', 1)
+        if ' ' in endpoint_params:
+            endpoint, params = endpoint_params.split(' ', 1)
+        else:
+            endpoint, params = endpoint_params, ''
 
         api_url = f'{API}{endpoint}'
 
@@ -58,6 +62,8 @@ def main():
             kwargs['params'].update(map(lambda x: tuple(x.split('=', 1)), query_params))
         if len(body_params):
             kwargs['data'] = dict(map(lambda x: tuple(x.split(':', 1)), body_params))
+
+        print(api_url, kwargs)
 
         if type == 'get':
             response = json.loads(requests.get(api_url, **kwargs).text)
