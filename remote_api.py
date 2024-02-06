@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import argparse
 import json
 import os
 import requests
@@ -21,15 +22,31 @@ def login():
     stamp = int(datetime.now().timestamp() * 1000)
     signature = md5(sha1(f"password={API_PASSWORD}&timestamp={stamp}".encode('utf-8')).hexdigest().encode('utf-8')).hexdigest()
 
-    response = json.loads(requests.get(f'{API}/login', params={'sign': signature, 'timestamp': stamp}).text)
+    response = requests.get(f'{API}/login', params={'sign': signature, 'timestamp': stamp}).json()
     if response['status'] == 0:
         print('Error while logging in:', json.dumps(response, indent=2))
         quit(1)
 
     token = response['data']['token']
 
-def main():
+def format_param(param: str, delimiter:str='='):
+    parts = param.split(delimiter, 1)
+    key, value = parts[0], parts[1]
+    try:
+        value = int(value)
+    except ValueError:
+        try:
+            value = float(value)
+        except ValueError:
+            value = str(value)
+    return (key, value)
+
+def main(verbose: bool = False):
     global token
+
+    def printv(*args, **kwargs):
+        if verbose:
+            print(*args, **kwargs)
 
     login()
 
@@ -40,9 +57,13 @@ def main():
 
     while True:
         s = input('::: ')
-        if s == 'exit' or s == 'quit':
+        if s in ('exit', 'quit'):
             print('Exiting...')
             break
+        if s in ('login', 'relog', 'relogin'):
+            login()
+            print('Relogged and refreshed token.')
+            continue
 
         type, endpoint_params = s.split(' ', 1)
         if ' ' in endpoint_params:
@@ -59,27 +80,45 @@ def main():
         kwargs = { 'params': {'token': token} }
 
         if len(query_params):
-            kwargs['params'].update(map(lambda x: tuple(x.split('=', 1)), query_params))
+            kwargs['params'].update(map(lambda x: format_param(x, '='), query_params))
         if len(body_params):
-            kwargs['data'] = dict(map(lambda x: tuple(x.split(':', 1)), body_params))
+            kwargs['json'] = dict(map(lambda x: format_param(x, ':'), body_params))
 
-        print(api_url, kwargs)
+        printv('URL:   ', api_url)
+        printv('kwargs:', kwargs)
 
         if type == 'get':
-            response = json.loads(requests.get(api_url, **kwargs).text)
+            response = requests.get(api_url, **kwargs)
         elif type == 'post':
-            response = json.loads(requests.post(api_url, **kwargs).text)
+            response = requests.post(api_url, **kwargs)
         else:
             print(f'Invalid type {type}: expected get or post')
             continue
 
-        if response['status'] == 1:
-            if 'data' in response:
-                print(json.dumps(response['data'], indent=2))
+        if not len(response.text):
+            if response.status_code == 400:
+                print('Invalid or missing parameters')
+                continue
+            obj = {
+                "error": {
+                    "code": response.status_code
+                },
+                "status": 0,
+            }
+        else:
+            obj = response.json()
+
+        if obj['status'] == 1:
+            if 'data' in obj:
+                print(json.dumps(obj['data'], indent=2))
             else:
                 print('Success!')
         else:
-            print(json.dumps(response, indent=2))
+            print(json.dumps(obj, indent=2))
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-v', '--verbose', action='store_true')
+    args = parser.parse_args()
+
+    main(args.verbose)
